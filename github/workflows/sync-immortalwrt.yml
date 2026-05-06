@@ -1,0 +1,40 @@
+name: Sync ImmortalWrt 24.10
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync-source:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Clone ImmortalWrt Source
+        run: |
+          git clone -b openwrt-24.10 --single-branch --depth=1 https://github.com/immortalwrt/immortalwrt.git source-temp
+
+      - name: Setup Directory and Copy Files
+        run: |
+          rm -rf immortalwrt24.10
+          mkdir -p immortalwrt24.10
+          rsync -av --exclude='.git' source-temp/ immortalwrt24.10/
+          rm -rf source-temp
+
+      - name: Commit and Push
+        run: |
+          git add immortalwrt24.10
+          if git diff --cached --exit-code --quiet; then
+            echo "没有需要提交的更新"
+          else
+            git commit -m "Auto sync ImmortalWrt 24.10 source [2版]"
+            git push origin main
+          fi
