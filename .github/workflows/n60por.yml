@@ -1,7 +1,7 @@
-name: Build Netcore N60 Pro (2GB) with PassWall2
+name: Build Netcore N60 Pro (2GB) with PassWall2 & Docker
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:        # 手动触发
 
 env:
   SOURCE_DIR: immortalwrt24.10
@@ -11,7 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write
+      contents: write        # 允许创建 Release
 
     steps:
     - name: Checkout repository
@@ -36,10 +36,23 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Copy custom config
+    - name: Copy custom config and enable Docker support
       run: |
         cd ${{ env.SOURCE_DIR }}
         cp ../${{ env.CONFIG_FILE }} .config
+
+        # 启用 Docker 所需的内核模块（避开 heredoc）
+        echo "CONFIG_CGROUPS=y" >> .config
+        echo "CONFIG_NAMESPACES=y" >> .config
+        echo "CONFIG_VETH=y" >> .config
+        echo "CONFIG_BRIDGE=y" >> .config
+        echo "CONFIG_OVERLAY_FS=y" >> .config
+
+        # 启用 Docker 软件包
+        echo "CONFIG_PACKAGE_docker-ce=y" >> .config
+        echo "CONFIG_PACKAGE_dockerd=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> .config
+        echo "CONFIG_PACKAGE_docker-compose=y" >> .config
 
     - name: Run defconfig
       run: |
@@ -72,14 +85,19 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: build-${{ github.run_number }}
-        name: Netcore N60 Pro Firmware with PassWall2 ${{ github.run_number }}
+        name: N60 Pro 2GB Firmware (PassWall2 + Docker) ${{ github.run_number }}
         body: |
-          ## 自动编译固件（含 PassWall2）
+          ## 自动编译固件（含 PassWall2 和 Docker 支持）
           - 设备：Netcore N60 Pro (2GB 内存版)
-          - 科学上网：集成 PassWall2（含 ss-rust、xray-core）
+          - 科学上网：PassWall2 (ss-rust, xray-core)
+          - 容器支持：Docker CE + Dockerman + docker-compose
           - 编译时间：${{ github.event.head_commit.timestamp }}
           - 提交哈希：${{ github.sha }}
           - 触发方式：手动
+
+          ### 刷写说明
+          - 若使用 UBI 布局的 U-Boot，请刷写 `sysupgrade.itb` 文件。
+          - 首次刷写建议不保留配置。
         files: artifacts/*
         allow_updates: true
       env:
