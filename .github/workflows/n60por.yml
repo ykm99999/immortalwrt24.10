@@ -1,26 +1,23 @@
-name: Build Netcore N60 Pro (2GB) Firmware
+name: Build Netcore N60 Pro (2GB) with PassWall2
 
 on:
-  workflow_dispatch:        # 手动触发
+  workflow_dispatch:
 
 env:
-  # 源码所在子目录
   SOURCE_DIR: immortalwrt24.10
   CONFIG_FILE: config/n60por.config
-  # 可选：自定义设备树文件（相对于仓库根目录）
-  DTS_FILE: config/mt7986a-netcore-n60-pro.dts
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write       # 允许创建 Release 和上传文件
+      contents: write
 
     steps:
-    - name: Checkout your repository
+    - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        ref: main           # 你的默认分支
+        ref: main
         fetch-depth: 0
 
     - name: Prepare environment
@@ -31,9 +28,11 @@ jobs:
           python3-distutils python3-setuptools rsync swig unzip zlib1g-dev \
           file wget qemu-utils
 
-    - name: Enter source directory and update feeds
+    - name: Configure feeds with PassWall
       run: |
         cd ${{ env.SOURCE_DIR }}
+        echo "src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git" >> feeds.conf.default
+        echo "src-git passwall2 https://github.com/Openwrt-Passwall/openwrt-passwall2.git" >> feeds.conf.default
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
@@ -42,31 +41,12 @@ jobs:
         cd ${{ env.SOURCE_DIR }}
         cp ../${{ env.CONFIG_FILE }} .config
 
-    - name: Override device tree (if exists)
-      run: |
-        if [ -f "${{ env.DTS_FILE }}" ]; then
-          cd ${{ env.SOURCE_DIR }}
-          # 查找内核设备树目录（支持不同内核版本）
-          DTS_PATH=$(find target/linux/mediatek/files-* -name "mt7986a-netcore-n60-pro.dts" 2>/dev/null | head -1)
-          if [ -n "$DTS_PATH" ]; then
-            cp ../${{ env.DTS_FILE }} $DTS_PATH
-            echo "Replaced DTS: $DTS_PATH"
-          else
-            # 如果未找到，尝试放到标准 dts 目录
-            mkdir -p target/linux/mediatek/dts/
-            cp ../${{ env.DTS_FILE }} target/linux/mediatek/dts/
-            echo "Placed DTS in target/linux/mediatek/dts/"
-          fi
-        else
-          echo "No custom DTS file found, using upstream default (512MB memory)"
-        fi
-
     - name: Run defconfig
       run: |
         cd ${{ env.SOURCE_DIR }}
         make defconfig
 
-    - name: Download all dependencies
+    - name: Download dependencies
       run: |
         cd ${{ env.SOURCE_DIR }}
         make download -j$(nproc) V=s
@@ -80,11 +60,9 @@ jobs:
       run: |
         mkdir -p artifacts
         cd ${{ env.SOURCE_DIR }}
-        # 收集 sysupgrade.itb、sysupgrade.bin、factory.bin 等
         find bin/targets/ -name "*sysupgrade.itb" -exec cp {} ../artifacts/ \;
         find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/ \;
         find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/ \;
-        # 可选：收集预加载器和 FIP 文件
         find bin/targets/ -name "*.fip" -exec cp {} ../artifacts/ \;
         find bin/targets/ -name "preloader.bin" -exec cp {} ../artifacts/ \;
         cd ..
@@ -94,18 +72,14 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: build-${{ github.run_number }}
-        name: Netcore N60 Pro Firmware ${{ github.run_number }}
+        name: Netcore N60 Pro Firmware with PassWall2 ${{ github.run_number }}
         body: |
-          ## 自动编译固件
+          ## 自动编译固件（含 PassWall2）
           - 设备：Netcore N60 Pro (2GB 内存版)
-          - 内存配置：已修改 DTS 适配 2GB（如果提供了自定义 DTS）
+          - 科学上网：集成 PassWall2（含 ss-rust、xray-core）
           - 编译时间：${{ github.event.head_commit.timestamp }}
           - 提交哈希：${{ github.sha }}
           - 触发方式：手动
-
-          ### 刷写说明
-          - 如果当前使用的是 UBI 布局的 U-Boot，请使用 `sysupgrade.itb` 文件通过 U-Boot 网页恢复模式或 `sysupgrade` 命令刷写。
-          - 如果需要从原厂固件恢复，请参考论坛教程。
         files: artifacts/*
         allow_updates: true
       env:
