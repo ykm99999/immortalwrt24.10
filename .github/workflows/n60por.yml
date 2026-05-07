@@ -7,7 +7,7 @@ env:
   UBUNTU_VERSION: ubuntu-22.04
   SOURCE_DIR: immortalwrt24.10
   CONFIG_FILE: config/n60por.config
-  UBOOT_REPO: https://github.com/dailook/bl-mt798x.git   # 或 hanwckf/bl-mt798x
+  UBOOT_REPO: https://github.com/dailook/bl-mt798x.git
   UBOOT_BRANCH: main
   UBOOT_SOC: mt7986
   UBOOT_BOARD: netcore_n60pro
@@ -19,15 +19,13 @@ jobs:
       contents: write
 
     steps:
-    - name: Checkout your repository (contains config & immortalwrt subdir)
+    - name: Checkout your repository
       uses: actions/checkout@v4
       with:
         ref: main
         fetch-depth: 0
 
-    # ========================
-    # 1. 编译 U-Boot
-    # ========================
+    # 编译 U-Boot
     - name: Checkout U-Boot source
       uses: actions/checkout@v4
       with:
@@ -53,9 +51,7 @@ jobs:
         find bl-mt798x/output -name "fip.bin" -exec cp {} artifacts/uboot/ \;
         find bl-mt798x/output -name "u-boot.bin" -exec cp {} artifacts/uboot/ \; || true
 
-    # ========================
-    # 2. 编译 ImmortalWrt 固件
-    # ========================
+    # 编译 ImmortalWrt 固件
     - name: Prepare environment (OpenWrt)
       run: |
         sudo apt install -y build-essential clang flex bison g++ gawk \
@@ -63,7 +59,7 @@ jobs:
           python3-distutils python3-setuptools rsync swig unzip zlib1g-dev \
           file wget qemu-utils
 
-    - name: Update feeds (default only)
+    - name: Update feeds
       run: |
         cd ${{ env.SOURCE_DIR }}
         ./scripts/feeds update -a
@@ -73,14 +69,12 @@ jobs:
       run: |
         cd ${{ env.SOURCE_DIR }}
         cp ../${{ env.CONFIG_FILE }} .config
-        # 添加内核选项（确保 Docker 和科学上网支持）
         echo "CONFIG_KERNEL_CGROUPS=y" >> .config
         echo "CONFIG_KERNEL_NAMESPACES=y" >> .config
         echo "CONFIG_KERNEL_VETH=y" >> .config
         echo "CONFIG_KERNEL_BRIDGE=y" >> .config
         echo "CONFIG_KERNEL_OVERLAY_FS=y" >> .config
         echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-        # 禁用可能冲突的驱动
         sed -i 's/^CONFIG_PACKAGE_kmod-mt_wifi=y/# CONFIG_PACKAGE_kmod-mt_wifi=y/g' .config
 
     - name: Run defconfig
@@ -106,9 +100,7 @@ jobs:
         find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/firmware/ \;
         find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/firmware/ \;
 
-    # ========================
-    # 3. 创建 Release 并上传所有产物
-    # ========================
+    # 创建 Release
     - name: Prepare final artifacts directory
       run: |
         ls -laR artifacts/
@@ -120,16 +112,16 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: build-${{ github.run_number }}
-        name: "N60 Pro 2G 全家桶 build-${{ github.run_number }}"
+        name: N60 Pro 2G 全家桶 build-${{ github.run_number }}
         body: |
           ## 自动构建产物 (U-Boot + 固件)
-          - **U-Boot**：基于 ${{ env.UBOOT_REPO }} 编译，支持 512MB/2GB 通用
-            - `bl2.img` + `fip.bin` 配对使用，请从 `uboot/` 目录下载
-          - **ImmortalWrt 固件**：
+
+          - U-Boot：基于 ${{ env.UBOOT_REPO }} 编译，支持 512MB/2GB 通用
+            - bl2.img + fip.bin 配对使用，请从 uboot/ 目录下载
+          - ImmortalWrt 固件：
             - 精简版，内置 LuCI + Argon 主题
-            - 内核完整支持 Docker、科学上网（应用包需要后装 via `opkg`）
-            - 固件位置：`firmware/`
-          - 刷写前请备份原厂固件，风险自负
+            - 内核完整支持 Docker、科学上网（应用包需要后装 via opkg）
+            - 固件位置：firmware/
         files: artifacts/*
         allow_updates: true
       env:
