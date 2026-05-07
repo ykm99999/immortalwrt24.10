@@ -16,12 +16,14 @@ jobs:
         ref: main
         fetch-depth: 0
 
-    # ------------------- 编译 U-Boot -------------------
-    - name: Checkout U-Boot source
+    # ========================
+    # 1. 编译 U-Boot
+    # ========================
+    - name: Checkout U-Boot source (hanwckf/bl-mt798x)
       uses: actions/checkout@v4
       with:
-        repository: dailook/bl-mt798x
-        ref: main
+        repository: hanwckf/bl-mt798x
+        ref: master
         path: bl-mt798x
 
     - name: Install U-Boot build dependencies
@@ -29,7 +31,7 @@ jobs:
         sudo apt update
         sudo apt install -y gcc-aarch64-linux-gnu build-essential flex bison libssl-dev device-tree-compiler
 
-    - name: Build U-Boot
+    - name: Build U-Boot for N60 Pro
       run: |
         cd bl-mt798x
         chmod +x ./build.sh
@@ -40,9 +42,12 @@ jobs:
         mkdir -p artifacts/uboot
         find bl-mt798x/output -name "bl2.img" -exec cp {} artifacts/uboot/ \;
         find bl-mt798x/output -name "fip.bin" -exec cp {} artifacts/uboot/ \;
+        # 可选：u-boot.bin 也可能存在
         find bl-mt798x/output -name "u-boot.bin" -exec cp {} artifacts/uboot/ \; || true
 
-    # ------------------- 编译 ImmortalWrt 固件 -------------------
+    # ========================
+    # 2. 编译 ImmortalWrt 固件
+    # ========================
     - name: Prepare environment (OpenWrt)
       run: |
         sudo apt install -y build-essential clang flex bison g++ gawk \
@@ -60,12 +65,14 @@ jobs:
       run: |
         cd immortalwrt24.10
         cp ../config/n60por.config .config
+        # 追加 Docker/科学上网所需内核选项（如果配置中未包含）
         echo "CONFIG_KERNEL_CGROUPS=y" >> .config
         echo "CONFIG_KERNEL_NAMESPACES=y" >> .config
         echo "CONFIG_KERNEL_VETH=y" >> .config
         echo "CONFIG_KERNEL_BRIDGE=y" >> .config
         echo "CONFIG_KERNEL_OVERLAY_FS=y" >> .config
         echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
+        # 禁用闭源无线驱动（避免冲突）
         sed -i 's/^CONFIG_PACKAGE_kmod-mt_wifi=y/# CONFIG_PACKAGE_kmod-mt_wifi=y/g' .config
 
     - name: Run defconfig
@@ -91,28 +98,32 @@ jobs:
         find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/firmware/ \;
         find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/firmware/ \;
 
-    # ------------------- 创建 Release -------------------
-    - name: Prepare final artifacts directory
+    # ========================
+    # 3. 创建 Release 并上传
+    # ========================
+    - name: Prepare artifacts summary
       run: |
         ls -laR artifacts/
         echo "Artifacts list" > artifacts/README.txt
-        echo "uboot/ contains bl2.img and fip.bin for Netcore N60 Pro" >> artifacts/README.txt
-        echo "firmware/ contains sysupgrade.itb (OpenWrt image)" >> artifacts/README.txt
+        echo "uboot/ contains bl2.img and fip.bin for Netcore N60 Pro (built from hanwckf/bl-mt798x)" >> artifacts/README.txt
+        echo "firmware/ contains sysupgrade.itb (ImmortalWrt image)" >> artifacts/README.txt
 
     - name: Create Release and upload assets
       uses: softprops/action-gh-release@v1
       with:
         tag_name: build-${{ github.run_number }}
-        name: N60 Pro 2G 全家桶 build-${{ github.run_number }}
+        name: "N60 Pro 2G 全家桶 build-${{ github.run_number }}"
         body: |
           ## 自动构建产物 (U-Boot + 固件)
 
-          - U-Boot：基于 dailook/bl-mt798x 编译，支持 512MB/2GB 通用
-            - bl2.img + fip.bin 配对使用，请从 uboot/ 目录下载
-          - ImmortalWrt 固件：
+          - **U-Boot**：基于 [hanwckf/bl-mt798x](https://github.com/hanwckf/bl-mt798x) 编译，支持 512MB/2GB 通用
+            - `uboot/bl2.img` + `uboot/fip.bin` 配对使用
+          - **ImmortalWrt 固件**：
             - 精简版，内置 LuCI + Argon 主题
-            - 内核完整支持 Docker、科学上网（应用包需要后装 via opkg）
-            - 固件位置：firmware/
+            - 内核已开启 Docker、科学上网所需模块（应用包请刷机后通过 `opkg` 安装）
+            - 固件位置：`firmware/`
+
+          刷机前请备份原厂固件，风险自负。
         files: artifacts/*
         allow_updates: true
       env:
