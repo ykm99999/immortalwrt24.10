@@ -1,34 +1,69 @@
-name: Build Netcore N60 Pro (2G) Lite
+name: Build U-Boot + ImmortalWrt Firmware
 
 on:
   workflow_dispatch:
 
 env:
+  UBUNTU_VERSION: ubuntu-22.04
   SOURCE_DIR: immortalwrt24.10
   CONFIG_FILE: config/n60por.config
+  UBOOT_REPO: https://github.com/dailook/bl-mt798x.git   # 或 hanwckf/bl-mt798x
+  UBOOT_BRANCH: main
+  UBOOT_SOC: mt7986
+  UBOOT_BOARD: netcore_n60pro
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04
+  build-all:
+    runs-on: ${{ env.UBUNTU_VERSION }}
     permissions:
       contents: write
 
     steps:
-    - name: Checkout repository
+    - name: Checkout your repository (contains config & immortalwrt subdir)
       uses: actions/checkout@v4
       with:
         ref: main
         fetch-depth: 0
 
-    - name: Prepare environment
+    # ========================
+    # 1. 编译 U-Boot
+    # ========================
+    - name: Checkout U-Boot source
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.UBOOT_REPO }}
+        ref: ${{ env.UBOOT_BRANCH }}
+        path: bl-mt798x
+
+    - name: Install U-Boot build dependencies
       run: |
         sudo apt update
+        sudo apt install -y gcc-aarch64-linux-gnu build-essential flex bison libssl-dev device-tree-compiler
+
+    - name: Build U-Boot
+      run: |
+        cd bl-mt798x
+        chmod +x ./build.sh
+        SOC=${{ env.UBOOT_SOC }} BOARD=${{ env.UBOOT_BOARD }} ./build.sh
+
+    - name: Collect U-Boot artifacts
+      run: |
+        mkdir -p artifacts/uboot
+        find bl-mt798x/output -name "bl2.img" -exec cp {} artifacts/uboot/ \;
+        find bl-mt798x/output -name "fip.bin" -exec cp {} artifacts/uboot/ \;
+        find bl-mt798x/output -name "u-boot.bin" -exec cp {} artifacts/uboot/ \; || true
+
+    # ========================
+    # 2. 编译 ImmortalWrt 固件
+    # ========================
+    - name: Prepare environment (OpenWrt)
+      run: |
         sudo apt install -y build-essential clang flex bison g++ gawk \
           gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
           python3-distutils python3-setuptools rsync swig unzip zlib1g-dev \
           file wget qemu-utils
 
-    - name: Update feeds (default only, no extra)
+    - name: Update feeds (default only)
       run: |
         cd ${{ env.SOURCE_DIR }}
         ./scripts/feeds update -a
@@ -38,18 +73,14 @@ jobs:
       run: |
         cd ${{ env.SOURCE_DIR }}
         cp ../${{ env.CONFIG_FILE }} .config
-
-        # 启用 Docker 所需的内核模块
+        # 添加内核选项（确保 Docker 和科学上网支持）
         echo "CONFIG_KERNEL_CGROUPS=y" >> .config
         echo "CONFIG_KERNEL_NAMESPACES=y" >> .config
         echo "CONFIG_KERNEL_VETH=y" >> .config
         echo "CONFIG_KERNEL_BRIDGE=y" >> .config
         echo "CONFIG_KERNEL_OVERLAY_FS=y" >> .config
-
-        # 启用 TUN 模块（科学上网常用）
         echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-
-        # 确保冲突包被禁用（如果配置文件中有）
+        # 禁用可能冲突的驱动
         sed -i 's/^CONFIG_PACKAGE_kmod-mt_wifi=y/# CONFIG_PACKAGE_kmod-mt_wifi=y/g' .config
 
     - name: Run defconfig
@@ -67,27 +98,38 @@ jobs:
         cd ${{ env.SOURCE_DIR }}
         make -j$(nproc) V=s
 
-    - name: Prepare artifacts
+    - name: Collect firmware artifacts
       run: |
-        mkdir -p artifacts
+        mkdir -p artifacts/firmware
         cd ${{ env.SOURCE_DIR }}
-        find bin/targets/ -name "*sysupgrade.itb" -exec cp {} ../artifacts/ \;
-        find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/ \;
-        find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/ \;
-        cd ..
-        ls -la artifacts/ > artifacts/filelist.txt
+        find bin/targets/ -name "*sysupgrade.itb" -exec cp {} ../artifacts/firmware/ \;
+        find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/firmware/ \;
+        find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/firmware/ \;
+
+    # ========================
+    # 3. 创建 Release 并上传所有产物
+    # ========================
+    - name: Prepare final artifacts directory
+      run: |
+        ls -laR artifacts/
+        echo "Artifacts list" > artifacts/README.txt
+        echo "uboot/ contains bl2.img and fip.bin for Netcore N60 Pro" >> artifacts/README.txt
+        echo "firmware/ contains sysupgrade.itb (OpenWrt image)" >> artifacts/README.txt
 
     - name: Create Release and upload assets
       uses: softprops/action-gh-release@v1
       with:
         tag_name: build-${{ github.run_number }}
-        name: N60 Pro 2G Lite ${{ github.run_number }}
+        name: "N60 Pro 2G 全家桶 build-${{ github.run_number }}"
         body: |
-          ## 精简版固件（内核支持 Docker + 科学上网）
-          - 设备：磊科 N60 Pro 官方 2G 版
-          - 固件体积：大幅减小，只保留内核模块
-          - 刷机后可通过 `opkg install` 在线安装 Docker 和 PassWall2
-          - 已启用内核选项：cgroups, namespaces, veth, bridge, overlayfs, tun
+          ## 自动构建产物 (U-Boot + 固件)
+          - **U-Boot**：基于 ${{ env.UBOOT_REPO }} 编译，支持 512MB/2GB 通用
+            - `bl2.img` + `fip.bin` 配对使用，请从 `uboot/` 目录下载
+          - **ImmortalWrt 固件**：
+            - 精简版，内置 LuCI + Argon 主题
+            - 内核完整支持 Docker、科学上网（应用包需要后装 via `opkg`）
+            - 固件位置：`firmware/`
+          - 刷写前请备份原厂固件，风险自负
         files: artifacts/*
         allow_updates: true
       env:
