@@ -1,7 +1,7 @@
-name: Build Netcore N60 Pro (2GB) with PassWall2 & Docker
+name: Build Netcore N60 Pro (2G) Lite
 
 on:
-  workflow_dispatch:        # 手动触发
+  workflow_dispatch:
 
 env:
   SOURCE_DIR: immortalwrt24.10
@@ -11,7 +11,7 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     permissions:
-      contents: write        # 允许创建 Release
+      contents: write
 
     steps:
     - name: Checkout repository
@@ -28,31 +28,37 @@ jobs:
           python3-distutils python3-setuptools rsync swig unzip zlib1g-dev \
           file wget qemu-utils
 
-    - name: Configure feeds with PassWall
+    - name: Configure feeds (optional)
       run: |
         cd ${{ env.SOURCE_DIR }}
-        echo "src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git" >> feeds.conf.default
-        echo "src-git passwall2 https://github.com/Openwrt-Passwall/openwrt-passwall2.git" >> feeds.conf.default
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+        # 如果需要 PassWall2 的依赖包，可以添加 feeds，但不内置应用
+        # 这里留空，保持纯净
 
-    - name: Copy custom config and enable Docker support
+    - name: Copy custom config and enable kernel support
       run: |
         cd ${{ env.SOURCE_DIR }}
         cp ../${{ env.CONFIG_FILE }} .config
 
-        # 启用 Docker 所需的内核模块（避开 heredoc）
-        echo "CONFIG_CGROUPS=y" >> .config
-        echo "CONFIG_NAMESPACES=y" >> .config
-        echo "CONFIG_VETH=y" >> .config
-        echo "CONFIG_BRIDGE=y" >> .config
-        echo "CONFIG_OVERLAY_FS=y" >> .config
+        # 启用 Docker 所需的内核模块（正确的前缀）
+        echo "CONFIG_KERNEL_CGROUPS=y" >> .config
+        echo "CONFIG_KERNEL_NAMESPACES=y" >> .config
+        echo "CONFIG_KERNEL_VETH=y" >> .config
+        echo "CONFIG_KERNEL_BRIDGE=y" >> .config
+        echo "CONFIG_KERNEL_OVERLAY_FS=y" >> .config
 
-        # 启用 Docker 软件包
-        echo "CONFIG_PACKAGE_docker-ce=y" >> .config
-        echo "CONFIG_PACKAGE_dockerd=y" >> .config
-        echo "CONFIG_PACKAGE_luci-app-dockerman=y" >> .config
-        echo "CONFIG_PACKAGE_docker-compose=y" >> .config
+        # 启用 TUN 模块（科学上网常用）
+        echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
+
+        # 确保不包含 Docker 应用包和 PassWall2 应用包（避免体积膨胀）
+        # 如果配置文件中存在，用 sed 注释掉
+        sed -i 's/^CONFIG_PACKAGE_docker-ce=y/# CONFIG_PACKAGE_docker-ce=y/g' .config
+        sed -i 's/^CONFIG_PACKAGE_dockerd=y/# CONFIG_PACKAGE_dockerd=y/g' .config
+        sed -i 's/^CONFIG_PACKAGE_luci-app-dockerman=y/# CONFIG_PACKAGE_luci-app-dockerman=y/g' .config
+        sed -i 's/^CONFIG_PACKAGE_docker-compose=y/# CONFIG_PACKAGE_docker-compose=y/g' .config
+        sed -i 's/^CONFIG_PACKAGE_luci-app-passwall2=y/# CONFIG_PACKAGE_luci-app-passwall2=y/g' .config
+        sed -i 's/^CONFIG_PACKAGE_passwall2=y/# CONFIG_PACKAGE_passwall2=y/g' .config
+        sed -i 's/^CONFIG_PACKAGE_ss-rust=y/# CONFIG_PACKAGE_ss-rust=y/g' .config
+        sed -i 's/^CONFIG_PACKAGE_xray-core=y/# CONFIG_PACKAGE_xray-core=y/g' .config
 
     - name: Run defconfig
       run: |
@@ -76,8 +82,6 @@ jobs:
         find bin/targets/ -name "*sysupgrade.itb" -exec cp {} ../artifacts/ \;
         find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/ \;
         find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/ \;
-        find bin/targets/ -name "*.fip" -exec cp {} ../artifacts/ \;
-        find bin/targets/ -name "preloader.bin" -exec cp {} ../artifacts/ \;
         cd ..
         ls -la artifacts/ > artifacts/filelist.txt
 
@@ -85,19 +89,13 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: build-${{ github.run_number }}
-        name: N60 Pro 2GB Firmware (PassWall2 + Docker) ${{ github.run_number }}
+        name: N60 Pro 2G Lite ${{ github.run_number }}
         body: |
-          ## 自动编译固件（含 PassWall2 和 Docker 支持）
-          - 设备：Netcore N60 Pro (2GB 内存版)
-          - 科学上网：PassWall2 (ss-rust, xray-core)
-          - 容器支持：Docker CE + Dockerman + docker-compose
-          - 编译时间：${{ github.event.head_commit.timestamp }}
-          - 提交哈希：${{ github.sha }}
-          - 触发方式：手动
-
-          ### 刷写说明
-          - 若使用 UBI 布局的 U-Boot，请刷写 `sysupgrade.itb` 文件。
-          - 首次刷写建议不保留配置。
+          ## 精简版固件（内核支持 Docker + 科学上网）
+          - 设备：磊科 N60 Pro 官方 2G 版
+          - 固件体积：大幅减小，只保留内核模块
+          - 刷机后可通过 `opkg install` 在线安装 Docker 和 PassWall2
+          - 已启用内核选项：cgroups, namespaces, veth, bridge, overlayfs, tun
         files: artifacts/*
         allow_updates: true
       env:
