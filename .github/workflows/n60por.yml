@@ -28,18 +28,18 @@ jobs:
           python3-distutils python3-setuptools rsync swig unzip zlib1g-dev \
           file wget qemu-utils
 
-    - name: Configure feeds (optional)
+    - name: Update feeds (default only, no extra)
       run: |
         cd ${{ env.SOURCE_DIR }}
-        # 如果需要 PassWall2 的依赖包，可以添加 feeds，但不内置应用
-        # 这里留空，保持纯净
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
     - name: Copy custom config and enable kernel support
       run: |
         cd ${{ env.SOURCE_DIR }}
         cp ../${{ env.CONFIG_FILE }} .config
 
-        # 启用 Docker 所需的内核模块（正确的前缀）
+        # 启用 Docker 所需的内核模块
         echo "CONFIG_KERNEL_CGROUPS=y" >> .config
         echo "CONFIG_KERNEL_NAMESPACES=y" >> .config
         echo "CONFIG_KERNEL_VETH=y" >> .config
@@ -49,16 +49,8 @@ jobs:
         # 启用 TUN 模块（科学上网常用）
         echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
 
-        # 确保不包含 Docker 应用包和 PassWall2 应用包（避免体积膨胀）
-        # 如果配置文件中存在，用 sed 注释掉
-        sed -i 's/^CONFIG_PACKAGE_docker-ce=y/# CONFIG_PACKAGE_docker-ce=y/g' .config
-        sed -i 's/^CONFIG_PACKAGE_dockerd=y/# CONFIG_PACKAGE_dockerd=y/g' .config
-        sed -i 's/^CONFIG_PACKAGE_luci-app-dockerman=y/# CONFIG_PACKAGE_luci-app-dockerman=y/g' .config
-        sed -i 's/^CONFIG_PACKAGE_docker-compose=y/# CONFIG_PACKAGE_docker-compose=y/g' .config
-        sed -i 's/^CONFIG_PACKAGE_luci-app-passwall2=y/# CONFIG_PACKAGE_luci-app-passwall2=y/g' .config
-        sed -i 's/^CONFIG_PACKAGE_passwall2=y/# CONFIG_PACKAGE_passwall2=y/g' .config
-        sed -i 's/^CONFIG_PACKAGE_ss-rust=y/# CONFIG_PACKAGE_ss-rust=y/g' .config
-        sed -i 's/^CONFIG_PACKAGE_xray-core=y/# CONFIG_PACKAGE_xray-core=y/g' .config
+        # 确保冲突包被禁用（如果配置文件中有）
+        sed -i 's/^CONFIG_PACKAGE_kmod-mt_wifi=y/# CONFIG_PACKAGE_kmod-mt_wifi=y/g' .config
 
     - name: Run defconfig
       run: |
