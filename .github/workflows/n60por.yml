@@ -1,5 +1,4 @@
-# .github/workflows/build-n60pro.yml
-name: Build U-Boot + ImmortalWrt Firmware for Netcore N60 Pro
+name: Build ImmortalWrt Firmware for Netcore N60 Pro
 
 on:
   workflow_dispatch:
@@ -11,41 +10,15 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout your repository (contains immortalwrt24.10 and config)
+      - name: Checkout your repository
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
 
-      # ======================== U-Boot 构建 ========================
-      - name: Checkout U-Boot source (hanwckf/bl-mt798x)
-        uses: actions/checkout@v4
-        with:
-          repository: hanwckf/bl-mt798x
-          ref: master
-          path: bl-mt798x
-
-      - name: Install U-Boot build dependencies
+      - name: Prepare build environment
         run: |
           sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu build-essential flex bison libssl-dev device-tree-compiler
-
-      - name: Build U-Boot for N60 Pro
-        run: |
-          cd bl-mt798x
-          chmod +x ./build.sh
-          SOC=mt7986 BOARD=netcore_n60pro ./build.sh
-
-      - name: Collect U-Boot artifacts
-        run: |
-          mkdir -p artifacts/uboot
-          find bl-mt798x/output -name "bl2.img" -exec cp {} artifacts/uboot/ \;
-          find bl-mt798x/output -name "fip.bin" -exec cp {} artifacts/uboot/ \;
-          find bl-mt798x/output -name "u-boot.bin" -exec cp {} artifacts/uboot/ \; || true
-
-      # ======================== ImmortalWrt 固件构建 ========================
-      - name: Prepare OpenWrt build environment
-        run: |
           sudo apt install -y build-essential clang flex bison g++ gawk \
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3-distutils python3-setuptools rsync swig unzip zlib1g-dev \
@@ -61,14 +34,14 @@ jobs:
         run: |
           cd immortalwrt24.10
           cp ../config/n60por.config .config
-          # 追加 Docker/科学上网所需内核选项
+          # 追加内核选项（如果配置中缺失）
           echo "CONFIG_KERNEL_CGROUPS=y" >> .config
           echo "CONFIG_KERNEL_NAMESPACES=y" >> .config
           echo "CONFIG_KERNEL_VETH=y" >> .config
           echo "CONFIG_KERNEL_BRIDGE=y" >> .config
           echo "CONFIG_KERNEL_OVERLAY_FS=y" >> .config
           echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-          # 禁用闭源无线驱动（避免冲突）
+          # 确保不使用闭源无线驱动
           sed -i 's/^CONFIG_PACKAGE_kmod-mt_wifi=y/# CONFIG_PACKAGE_kmod-mt_wifi=y/g' .config
 
       - name: Run defconfig
@@ -86,34 +59,33 @@ jobs:
           cd immortalwrt24.10
           make -j$(nproc) V=s
 
-      - name: Collect firmware artifacts
+      - name: Collect artifacts
         run: |
-          mkdir -p artifacts/firmware
+          mkdir -p artifacts
           cd immortalwrt24.10
-          find bin/targets/ -name "*sysupgrade.itb" -exec cp {} ../artifacts/firmware/ \;
-          find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/firmware/ \;
-          find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/firmware/ \;
+          find bin/targets/ -name "*sysupgrade.itb" -exec cp {} ../artifacts/ \;
+          find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/ \;
+          find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/ \;
 
-      # ======================== 打包并发布 Release ========================
-      - name: Prepare final artifacts summary
-        run: |
-          ls -laR artifacts/
-          echo "U-Boot files (bl2.img + fip.bin) in uboot/" > artifacts/README.txt
-          echo "Firmware files (sysupgrade.itb/factory.bin) in firmware/" >> artifacts/README.txt
-
-      - name: Create Release and upload assets
+      - name: Create Release and upload
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: build-${{ github.run_number }}
-          name: "N60 Pro 全家桶 build-${{ github.run_number }}"
+          tag_name: firmware-${{ github.run_number }}
+          name: "N60 Pro ImmortalWrt 固件 build-${{ github.run_number }}"
           body: |
-            ## 自动构建产物 (U-Boot + ImmortalWrt)
+            ## 自动编译固件
 
-            - **U-Boot**：基于 [hanwckf/bl-mt798x](https://github.com/hanwckf/bl-mt798x) 编译，适用于 512MB / 2GB 内存版本
-              - `uboot/bl2.img` + `uboot/fip.bin` 配对使用
-            - **ImmortalWrt 固件**：精简版，LuCI + Argon 主题，内核已支持 Docker 和科学上网（应用需后装）
-              - `firmware/sysupgrade.itb` → 通过 `sysupgrade` 命令升级
-              - `firmware/factory.bin` → 通过 U-Boot Web 界面刷入（适用于救砖）
+            - 源码：[ImmortalWrt](https://github.com/immortalwrt/immortalwrt.git)
+            - 设备：Netcore N60 Pro (2G 官方版)
+            - 已修改 DTS 适配 2GB 内存
+            - 内置 LuCI + Argon 主题
+            - 内核支持：Docker (cgroups, namespace, overlayfs, veth, bridge) + TUN (科学上网)
+            - 科学上网和 Docker 应用未预装，刷机后可通过 `opkg install` 安装
+
+            ### 刷写说明
+            - **首次刷机**：通过 U-Boot Web 界面 (`192.168.1.1`) 刷入 `factory.bin`
+            - **升级**：在现有 OpenWrt 中执行 `sysupgrade -n /tmp/xxx-sysupgrade.itb`
+            - 后台地址：`192.168.6.1` 用户名：`root` 密码：`password`
 
             刷机前请备份原厂固件，风险自负。
           files: artifacts/*
