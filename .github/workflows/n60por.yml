@@ -3,18 +3,9 @@ name: Build U-Boot + ImmortalWrt Firmware
 on:
   workflow_dispatch:
 
-env:
-  UBUNTU_VERSION: ubuntu-22.04
-  SOURCE_DIR: immortalwrt24.10
-  CONFIG_FILE: config/n60por.config
-  UBOOT_REPO: https://github.com/dailook/bl-mt798x.git
-  UBOOT_BRANCH: main
-  UBOOT_SOC: mt7986
-  UBOOT_BOARD: netcore_n60pro
-
 jobs:
   build-all:
-    runs-on: ${{ env.UBUNTU_VERSION }}
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
 
@@ -25,12 +16,12 @@ jobs:
         ref: main
         fetch-depth: 0
 
-    # 编译 U-Boot
+    # ------------------- 编译 U-Boot -------------------
     - name: Checkout U-Boot source
       uses: actions/checkout@v4
       with:
-        repository: ${{ env.UBOOT_REPO }}
-        ref: ${{ env.UBOOT_BRANCH }}
+        repository: dailook/bl-mt798x
+        ref: main
         path: bl-mt798x
 
     - name: Install U-Boot build dependencies
@@ -42,7 +33,7 @@ jobs:
       run: |
         cd bl-mt798x
         chmod +x ./build.sh
-        SOC=${{ env.UBOOT_SOC }} BOARD=${{ env.UBOOT_BOARD }} ./build.sh
+        SOC=mt7986 BOARD=netcore_n60pro ./build.sh
 
     - name: Collect U-Boot artifacts
       run: |
@@ -51,7 +42,7 @@ jobs:
         find bl-mt798x/output -name "fip.bin" -exec cp {} artifacts/uboot/ \;
         find bl-mt798x/output -name "u-boot.bin" -exec cp {} artifacts/uboot/ \; || true
 
-    # 编译 ImmortalWrt 固件
+    # ------------------- 编译 ImmortalWrt 固件 -------------------
     - name: Prepare environment (OpenWrt)
       run: |
         sudo apt install -y build-essential clang flex bison g++ gawk \
@@ -61,14 +52,14 @@ jobs:
 
     - name: Update feeds
       run: |
-        cd ${{ env.SOURCE_DIR }}
+        cd immortalwrt24.10
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
     - name: Copy custom config and enable kernel support
       run: |
-        cd ${{ env.SOURCE_DIR }}
-        cp ../${{ env.CONFIG_FILE }} .config
+        cd immortalwrt24.10
+        cp ../config/n60por.config .config
         echo "CONFIG_KERNEL_CGROUPS=y" >> .config
         echo "CONFIG_KERNEL_NAMESPACES=y" >> .config
         echo "CONFIG_KERNEL_VETH=y" >> .config
@@ -79,28 +70,28 @@ jobs:
 
     - name: Run defconfig
       run: |
-        cd ${{ env.SOURCE_DIR }}
+        cd immortalwrt24.10
         make defconfig
 
     - name: Download dependencies
       run: |
-        cd ${{ env.SOURCE_DIR }}
+        cd immortalwrt24.10
         make download -j$(nproc) V=s
 
     - name: Build firmware
       run: |
-        cd ${{ env.SOURCE_DIR }}
+        cd immortalwrt24.10
         make -j$(nproc) V=s
 
     - name: Collect firmware artifacts
       run: |
         mkdir -p artifacts/firmware
-        cd ${{ env.SOURCE_DIR }}
+        cd immortalwrt24.10
         find bin/targets/ -name "*sysupgrade.itb" -exec cp {} ../artifacts/firmware/ \;
         find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/firmware/ \;
         find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/firmware/ \;
 
-    # 创建 Release
+    # ------------------- 创建 Release -------------------
     - name: Prepare final artifacts directory
       run: |
         ls -laR artifacts/
@@ -116,7 +107,7 @@ jobs:
         body: |
           ## 自动构建产物 (U-Boot + 固件)
 
-          - U-Boot：基于 ${{ env.UBOOT_REPO }} 编译，支持 512MB/2GB 通用
+          - U-Boot：基于 dailook/bl-mt798x 编译，支持 512MB/2GB 通用
             - bl2.img + fip.bin 配对使用，请从 uboot/ 目录下载
           - ImmortalWrt 固件：
             - 精简版，内置 LuCI + Argon 主题
