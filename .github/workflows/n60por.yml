@@ -10,7 +10,7 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout your repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: main
@@ -30,19 +30,10 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Copy custom config and enable kernel support
+      - name: Copy custom config
         run: |
           cd immortalwrt24.10
           cp ../config/n60por.config .config
-          # 追加内核选项（如果配置中缺失）
-          echo "CONFIG_KERNEL_CGROUPS=y" >> .config
-          echo "CONFIG_KERNEL_NAMESPACES=y" >> .config
-          echo "CONFIG_KERNEL_VETH=y" >> .config
-          echo "CONFIG_KERNEL_BRIDGE=y" >> .config
-          echo "CONFIG_KERNEL_OVERLAY_FS=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-tun=y" >> .config
-          # 确保不使用闭源无线驱动
-          sed -i 's/^CONFIG_PACKAGE_kmod-mt_wifi=y/# CONFIG_PACKAGE_kmod-mt_wifi=y/g' .config
 
       - name: Run defconfig
         run: |
@@ -67,27 +58,22 @@ jobs:
           find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/ \;
           find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/ \;
 
-      - name: Create Release and upload
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: firmware-${{ github.run_number }}
           name: "N60 Pro ImmortalWrt 固件 build-${{ github.run_number }}"
           body: |
-            ## 自动编译固件
+            ## 自动编译固件（内核级 Docker + 科学上网 支持）
 
-            - 源码：[ImmortalWrt](https://github.com/immortalwrt/immortalwrt.git)
             - 设备：Netcore N60 Pro (2G 官方版)
-            - 已修改 DTS 适配 2GB 内存
-            - 内置 LuCI + Argon 主题
-            - 内核支持：Docker (cgroups, namespace, overlayfs, veth, bridge) + TUN (科学上网)
-            - 科学上网和 Docker 应用未预装，刷机后可通过 `opkg install` 安装
+            - 固件类型：精简版（不含 Docker/科学上网 应用包，内核模块完整）
+            - 刷机后通过 `opkg install` 安装所需应用（docker-ce, luci-app-passwall2 等）
+            - 后台地址：192.168.6.1  用户：root  密码：password
 
-            ### 刷写说明
+            ### 刷写方式
             - **首次刷机**：通过 U-Boot Web 界面 (`192.168.1.1`) 刷入 `factory.bin`
             - **升级**：在现有 OpenWrt 中执行 `sysupgrade -n /tmp/xxx-sysupgrade.itb`
-            - 后台地址：`192.168.6.1` 用户名：`root` 密码：`password`
-
-            刷机前请备份原厂固件，风险自负。
           files: artifacts/*
           allow_updates: true
         env:
