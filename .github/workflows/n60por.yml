@@ -1,4 +1,5 @@
-name: Build ImmortalWrt Firmware for Netcore N60 Pro
+# .github/workflows/build-n60pro.yml
+name: Build Netcore N60 Pro 2G Performance Edition
 
 on:
   workflow_dispatch:
@@ -24,9 +25,12 @@ jobs:
             python3-distutils python3-setuptools rsync swig unzip zlib1g-dev \
             file wget qemu-utils
 
-      - name: Update feeds
+      - name: Add extra feeds (passwall2, openclash)
         run: |
           cd immortalwrt24.10
+          echo "src-git passwall_packages https://github.com/Openwrt-Passwall/openwrt-passwall-packages.git" >> feeds.conf.default
+          echo "src-git passwall2 https://github.com/Openwrt-Passwall/openwrt-passwall2.git" >> feeds.conf.default
+          echo "src-git openclash https://github.com/vernesong/OpenClash.git" >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
@@ -58,22 +62,24 @@ jobs:
           find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/ \;
           find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/ \;
 
-      - name: Create Release
+      - name: Create Release and upload
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: firmware-${{ github.run_number }}
-          name: "N60 Pro ImmortalWrt 固件 build-${{ github.run_number }}"
+          tag_name: performance-${{ github.run_number }}
+          name: "N60 Pro 2G 性能榨干版 build-${{ github.run_number }}"
           body: |
-            ## 自动编译固件（内核级 Docker + 科学上网 支持）
+            ## 自动编译极限性能固件
 
-            - 设备：Netcore N60 Pro (2G 官方版)
-            - 固件类型：精简版（不含 Docker/科学上网 应用包，内核模块完整）
-            - 刷机后通过 `opkg install` 安装所需应用（docker-ce, luci-app-passwall2 等）
-            - 后台地址：192.168.6.1  用户：root  密码：password
+            - 设备：Netcore N60 Pro 官方2G版
+            - 内核：性能模式 + 全锥形NAT + BBR + 硬件HNAT
+            - 集成：Docker (dockerd + dockerman) + PassWall2 + OpenClash + AdGuardHome
+            - 存储：USB 3.0 + UAS + ext4/f2fs/ntfs3
+            - 编译：已禁用 mklibs，避免 `libc.so` 错误
 
-            ### 刷写方式
-            - **首次刷机**：通过 U-Boot Web 界面 (`192.168.1.1`) 刷入 `factory.bin`
-            - **升级**：在现有 OpenWrt 中执行 `sysupgrade -n /tmp/xxx-sysupgrade.itb`
+            ### 刷写说明
+            - 若已有 **UBI 布局 U-Boot**，可直接刷入 `sysupgrade.itb`
+            - 从原厂/其他固件升级，建议通过 U-Boot 恢复界面刷入 `factory.bin`
+            - 后台：`192.168.6.1` 用户：`root` 密码：`password`
           files: artifacts/*
           allow_updates: true
         env:
