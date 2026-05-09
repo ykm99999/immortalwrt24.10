@@ -1,0 +1,39 @@
+name: Sync LEDE Source
+
+on:
+  workflow_dispatch:        # 手动触发
+  schedule:
+    - cron: '0 0 * * 0'     # 每周日零点自动同步（可选）
+
+jobs:
+  sync:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout your repository (target branch)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Remove existing lede directory if any
+        run: rm -rf lede
+
+      - name: Clone LEDE source (coolsnowwolf/lede)
+        run: |
+          git clone --depth 1 --branch master https://github.com/coolsnowwolf/lede.git lede
+
+      - name: Remove .git from cloned source (avoid submodule issues)
+        run: rm -rf lede/.git
+
+      - name: Commit and push to your main branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add lede
+          git commit -m "chore: sync LEDE source from coolsnowwolf/lede" || echo "No changes to commit"
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
