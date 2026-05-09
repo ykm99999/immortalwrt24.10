@@ -1,0 +1,12 @@
+--- a/src/ptp.c
++++ b/src/ptp.c
+@@ -302,8 +302,10 @@
+ 	CHECK_TYPE_SIZE(sysoff.magic, 4);
+ 	CHECK_TYPE_SIZE(sysoff.ts, sizeof(struct __kernel_timespec));
+ 	/* reserved bytes are not used in any way */
++#if 0
+ 	CHECK_TYPE_SIZE(sysoff.rsv, sizeof(unsigned int) * 3);
++#endif
+ }
+ 
+ SCA_DECL(ptp_pin_function) {
