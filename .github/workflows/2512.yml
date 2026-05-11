@@ -1,0 +1,82 @@
+# .github/workflows/build-n60pro.yml
+name: Build Netcore N60 Pro 2G (Kernel Dependencies Only) - 25.12
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Prepare build environment
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-distutils python3-setuptools rsync swig unzip zlib1g-dev \
+            file wget qemu-utils
+
+      - name: Update feeds (default only, no extra)
+        run: |
+          cd immortalwrt25.12
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Copy custom config
+        run: |
+          cd immortalwrt25.12
+          cp ../config/2512.config .config
+
+      - name: Run defconfig
+        run: |
+          cd immortalwrt25.12
+          make defconfig
+
+      - name: Download dependencies
+        run: |
+          cd immortalwrt25.12
+          make download -j$(nproc) V=s
+
+      - name: Build firmware
+        run: |
+          cd immortalwrt25.12
+          make -j$(nproc) V=s
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cd immortalwrt25.12
+          find bin/targets/ -name "*sysupgrade.itb" -exec cp {} ../artifacts/ \;
+          find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/ \;
+          find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/ \;
+
+      - name: Create Release and upload
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: deps-${{ github.run_number }}
+          name: "N60 Pro 2G 纯净依赖固件 (25.12) build-${{ github.run_number }}"
+          body: |
+            ## 仅包含内核依赖（Docker + 科学上网 所需模块）
+
+            - 基于 ImmortalWrt 25.12 (内核 6.12)
+            - 固件体积小，刷机后请通过 `apk` 安装应用：
+              ```bash
+              apk update
+              apk add docker-ce docker-cli docker-compose luci-app-dockerman
+              apk add luci-app-passwall2
+              ```
+            - 已启用性能调优：CPU 性能模式、全锥形 NAT、BBR、硬件 HNAT
+            - 后台：192.168.6.1  root / password
+          files: artifacts/*
+          allow_updates: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
