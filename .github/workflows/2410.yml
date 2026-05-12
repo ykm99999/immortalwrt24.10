@@ -28,8 +28,19 @@ jobs:
 
       - name: Show directory structure
         run: |
+          echo "=== 当前工作目录 ==="
+          pwd
+          echo ""
           echo "=== 当前目录结构 ==="
           ls -la
+          echo ""
+          echo "=== 检查 immortalwrt24.10 子目录 ==="
+          if [ -d "immortalwrt24.10" ]; then
+            ls -la immortalwrt24.10/
+            echo "✅ 源码目录存在"
+          else
+            echo "❌ immortalwrt24.10 目录不存在"
+          fi
 
       - name: Prepare build environment
         run: |
@@ -38,34 +49,49 @@ jobs:
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3-distutils python3-setuptools rsync swig unzip zlib1g-dev \
             file wget qemu-utils libelf-dev autotools-dev \
-            autoconf automake autopoint libtool pkg-config ccache uuid-dev \
-            libz-dev
+            autoconf automake autopoint libtool pkg-config ccache uuid-dev libz-dev
 
       # ---------------------------------------------
-      # 2. 克隆你的 ImmortalWrt 源码
+      # 2. 设置源码目录路径
       # ---------------------------------------------
-      - name: Clone your ImmortalWrt source
+      - name: Setup source directory
+        id: setup_source
         run: |
-          REPO_URL="https://github.com/ykm99999/immortalwrt24.10.git"
+          cd "$GITHUB_WORKSPACE"
           
+          # 检查 immortalwrt24.10 子目录是否存在
           if [ -d "immortalwrt24.10" ]; then
-            echo "源码目录已存在，更新..."
-            cd immortalwrt24.10
-            git remote set-url origin "$REPO_URL"
-            git pull origin main
-            git checkout main
+            echo "dir=immortalwrt24.10" >> $GITHUB_OUTPUT
+            echo "🔍 使用子目录: immortalwrt24.10"
           else
-            echo "从你的仓库克隆源码..."
-            git clone --depth=1 --branch main "$REPO_URL" immortalwrt24.10
+            echo "dir=." >> $GITHUB_OUTPUT
+            echo "🔍 使用当前目录作为源码目录"
           fi
           
-          cd immortalwrt24.10
-          echo "=== 当前源码信息 ==="
-          git log -1 --oneline
-          git remote -v
+          echo "最终源码路径: ${{ steps.setup_source.outputs.dir }}"
 
       # ---------------------------------------------
-      # 3. 缓存配置
+      # 3. 更新源码（从你的仓库拉取）
+      # ---------------------------------------------
+      - name: Pull latest source
+        run: |
+          cd "$GITHUB_WORKSPACE/immortalwrt24.10"
+          
+          echo "=== 当前源码状态 ==="
+          git remote -v
+          git log -1 --oneline
+          echo ""
+          
+          echo "=== 拉取最新代码 ==="
+          git remote set-url origin https://github.com/ykm99999/immortalwrt24.10.git
+          git pull origin main --force
+          
+          echo ""
+          echo "✅ 源码已更新"
+          git log -1 --oneline
+
+      # ---------------------------------------------
+      # 4. 缓存配置
       # ---------------------------------------------
       - name: Cache ccache
         uses: actions/cache@v4
@@ -73,7 +99,7 @@ jobs:
         with:
           path: |
             ~/.ccache
-            immortalwrt24.10/staging_dir
+            ${{ github.workspace }}/immortalwrt24.10/staging_dir
           key: n60pro-ccache-${{ github.run_id }}
           restore-keys: |
             n60pro-ccache-
@@ -82,50 +108,59 @@ jobs:
         uses: actions/cache@v4
         if: inputs.clean_build != true
         with:
-          path: immortalwrt24.10/dl
-          key: n60pro-dl-${{ hashFiles('immortalwrt24.10/.config') }}
+          path: ${{ github.workspace }}/immortalwrt24.10/dl
+          key: n60pro-dl-${{ hashFiles('${{ github.workspace }}/immortalwrt24.10/.config') }}
           restore-keys: |
             n60pro-dl-
 
       # ---------------------------------------------
-      # 4. 更新 feeds
+      # 5. 更新 feeds
       # ---------------------------------------------
       - name: Update feeds
         run: |
-          cd immortalwrt24.10
+          cd ${{ github.workspace }}/immortalwrt24.10
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       # ---------------------------------------------
-      # 5. 应用配置
+      # 6. 应用配置
       # ---------------------------------------------
       - name: Copy custom config
         run: |
-          cd immortalwrt24.10
-          cp ../config/n60por.config .config
-          echo "✅ 配置文件已应用"
+          cd ${{ github.workspace }}/immortalwrt24.10
+          
+          # 查找配置文件
+          CONFIG_FILE="${{ github.workspace }}/config/n60por.config"
+          if [ -f "$CONFIG_FILE" ]; then
+            cp "$CONFIG_FILE" .config
+            echo "✅ 配置文件已应用"
+          else
+            echo "❌ 配置文件不存在: $CONFIG_FILE"
+            ls -la ${{ github.workspace }}/config/
+            exit 1
+          fi
 
       - name: Run defconfig
         run: |
-          cd immortalwrt24.10
+          cd ${{ github.workspace }}/immortalwrt24.10
           make defconfig
 
       # ---------------------------------------------
-      # 6. 下载依赖
+      # 7. 下载依赖
       # ---------------------------------------------
       - name: Download dependencies
         run: |
-          cd immortalwrt24.10
+          cd ${{ github.workspace }}/immortalwrt24.10
           make download -j$(nproc)
         continue-on-error: true
         timeout-minutes: 60
 
       # ---------------------------------------------
-      # 7. 编译固件
+      # 8. 编译固件
       # ---------------------------------------------
       - name: Build firmware
         run: |
-          cd immortalwrt24.10
+          cd ${{ github.workspace }}/immortalwrt24.10
           make -j$(nproc) V=s CCACHE=1 2>&1 | tee build.log
           
           # 检查是否成功
@@ -139,32 +174,32 @@ jobs:
         timeout-minutes: 480
 
       # ---------------------------------------------
-      # 8. 收集产物
+      # 9. 收集产物
       # ---------------------------------------------
       - name: Collect artifacts
         run: |
-          mkdir -p artifacts
-          cd immortalwrt24.10
+          mkdir -p ${{ github.workspace }}/artifacts
+          cd ${{ github.workspace }}/immortalwrt24.10
           
           echo "=== 固件文件 ==="
           find bin/targets -type f \( -name "*.itb" -o -name "*.bin" \) -exec ls -lh {} \;
           
           # 复制固件
           find bin/targets -type f \( -name "*sysupgrade.itb" -o -name "*sysupgrade.bin" -o -name "*factory.bin" \) \
-            -exec cp -v {} ../artifacts/ \; 2>/dev/null || true
+            -exec cp -v {} ${{ github.workspace }}/artifacts/ \; 2>/dev/null || true
           
           echo ""
           echo "=== 产物列表 ==="
-          ls -lh ../artifacts/
+          ls -lh ${{ github.workspace }}/artifacts/
 
       # ---------------------------------------------
-      # 9. 上传 Release
+      # 10. 上传 Release
       # ---------------------------------------------
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ github.run_number }}
-          name: "N60 Pro 2G 固件 #$(github.run_number)"
+          name: "N60 Pro 2G 固件 #${{ github.run_number }}"
           body: |
             ## 📦 N60 Pro 2G 纯净固件
 
@@ -173,18 +208,19 @@ jobs:
 
             ---
 
-            ### ✅ 已包含内核依赖
-
-            - Docker 容器支持 (cgroup, veth 等)
-            - 科学上网支持 (tun, nft-tproxy)
+            ### ✅ 已包含
+            - Docker 容器支持
+            - 科学上网支持
             - 无线驱动 (mt7915e)
-            - 硬件加速 (HNAT, offload)
+            - 硬件加速 (HNAT)
 
             ---
 
-            ### 🚀 刷机后安装应用
+            ### 📝 默认信息
+            | 项目 | 值 |
+            |------|-----|
+            | 管理地址 | 192.168.6.1 |
+            | 用户名 | root |
+            | 密码 | password |
 
-            ```bash
-            opkg update
-            opkg install docker-ce dockerd luci-app-dockerman
-            opkg install luci-app-passwall2
+          files: ${{ github.workspace }}/artifacts/*
