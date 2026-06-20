@@ -1,5 +1,4 @@
-# .github/workflows/build-n60pro.yml
-name: Build Netcore N60 Pro 2G (Kernel Dependencies Only)
+name: Build N60 Pro 精简高性能固件 (内置 SSR Plus+)
 
 on:
   workflow_dispatch:
@@ -11,7 +10,7 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout your repository
         uses: actions/checkout@v4
         with:
           ref: main
@@ -24,49 +23,52 @@ jobs:
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3-distutils python3-setuptools rsync swig unzip zlib1g-dev \
             file wget qemu-utils
-      - name: Update feeds (default only, no extra)
+
+      # ========== 关键：添加 SSR Plus+ 的 feeds 源 ==========
+      - name: Update feeds (with SSR Plus+)
         run: |
-          cd immortalwrt24.10
+          echo "src-git helloworld https://github.com/fw876/helloworld.git" >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+
+      # ========== 直接使用根目录下的 config 文件 ==========
       - name: Copy custom config
         run: |
-          cd immortalwrt24.10
-          cp ../config/n60por.config .config
+          cp config/n60por.config .config
+
       - name: Run defconfig
-        run: |
-          cd immortalwrt24.10
-          make defconfig
+        run: make defconfig
+
       - name: Download dependencies
-        run: |
-          cd immortalwrt24.10
-          make download -j$(nproc) V=s
+        run: make download -j$(nproc) V=s
+
       - name: Build firmware
-        run: |
-          cd immortalwrt24.10
-          make -j$(nproc) V=s
+        run: make -j$(nproc) V=s
+
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
-          cd immortalwrt24.10
-          find bin/targets/ -name "*sysupgrade.itb" -exec cp {} ../artifacts/ \;
-          find bin/targets/ -name "*sysupgrade.bin" -exec cp {} ../artifacts/ \;
-          find bin/targets/ -name "*factory.bin" -exec cp {} ../artifacts/ \;
+          find bin/targets/ -name "*sysupgrade.itb" -exec cp {} artifacts/ \;
+          find bin/targets/ -name "*sysupgrade.bin" -exec cp {} artifacts/ \;
+          find bin/targets/ -name "*factory.bin" -exec cp {} artifacts/ \;
+
       - name: Create Release and upload
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: deps-${{ github.run_number }}
-          name: "N60 Pro 2G 纯净依赖固件 build-${{ github.run_number }}"
+          tag_name: build-${{ github.run_number }}
+          name: "N60 Pro 精简高性能固件 build-${{ github.run_number }}"
           body: |
-            ## 仅包含内核依赖（Docker + 科学上网 所需模块）
-            - 固件体积小，刷机后请通过 `opkg` 安装应用：
-              ```bash
-              opkg update
-              opkg install docker-ce dockerd luci-app-dockerman docker-compose
-              opkg install luci-app-passwall2
-              ```
-            - 已启用性能调优：CPU 性能模式、全锥形 NAT、BBR、硬件 HNAT
-            - 后台：192.168.6.1  root / password
+            ## 精简高性能固件 (内置 SSR Plus+)
+
+            - **源码**：基于 padavanonly/immortalwrt-mt798x-24.10
+            - **内核**：CPU 性能模式 + 全锥形 NAT + BBR + 硬件 HNAT
+            - **科学上网**：内置 luci-app-ssr-plus + xray-core（开箱即用）
+            - **设计理念**：精简、稳定、高性能
+            - **后台**：192.168.6.1  root / password
+
+            ### 刷写说明
+            - 通过 U-Boot 刷入 `sysupgrade.itb` 文件
+            - 首次启动建议不保留配置
           files: artifacts/*
           allow_updates: true
         env:
